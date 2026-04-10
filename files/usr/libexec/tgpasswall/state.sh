@@ -71,8 +71,12 @@ get_ports() {
 get_online_hosts() {
 	if command -v ip >/dev/null 2>&1; then
 		ip neigh show 2>/dev/null | awk '
-			($5=="REACHABLE" || $5=="STALE" || $5=="DELAY" || $5=="PROBE") {
-				printf "%s %s %s\n", $1, $3, $5
+			($(NF)=="REACHABLE" || $(NF)=="STALE" || $(NF)=="DELAY" || $(NF)=="PROBE") {
+				if ($4=="lladdr") {
+					printf "%s  iface=%s  mac=%s  state=%s\n", $1, $3, $5, $(NF)
+				} else {
+					printf "%s  iface=%s  state=%s\n", $1, $3, $(NF)
+				}
 			}
 		'
 	else
