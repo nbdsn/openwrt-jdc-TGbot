@@ -68,6 +68,18 @@ get_ports() {
 	fi
 }
 
+get_online_hosts() {
+	if command -v ip >/dev/null 2>&1; then
+		ip neigh show 2>/dev/null | awk '
+			($5=="REACHABLE" || $5=="STALE" || $5=="DELAY" || $5=="PROBE") {
+				printf "%s %s %s\n", $1, $3, $5
+			}
+		'
+	else
+		arp -an 2>/dev/null
+	fi
+}
+
 status_summary() {
 	printf "主机名: %s\n" "$(get_hostname)"
 	printf "运行时长: %s\n" "$(get_uptime_human)"

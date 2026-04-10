@@ -22,6 +22,17 @@ pw_node_section_type() {
 	uci -q get tgpasswall."$CFG".passwall_node_section_type 2>/dev/null || echo "nodes"
 }
 
+pw_get_section_type() {
+	local sec="$1"
+	uci -q show "passwall.${sec}" 2>/dev/null | awk -F= '
+		NR==1 {
+			v=$2
+			gsub(/^'\''|'\''$/, "", v)
+			print v
+		}
+	'
+}
+
 pw_apply() {
 	uci -q commit passwall || return 1
 	/etc/init.d/"$(pw_service)" restart >/dev/null 2>&1 || /etc/init.d/"$(pw_service)" reload >/dev/null 2>&1
@@ -104,26 +115,37 @@ pw_list_nodes() {
 	'
 }
 
+pw_list_real_nodes() {
+	local typ
+	typ="$(pw_node_section_type)"
+	pw_list_nodes | while IFS='|' read -r sec rem; do
+		[ -n "$sec" ] || continue
+		if [ "$(pw_get_section_type "$sec")" = "$typ" ]; then
+			echo "${sec}|${rem}"
+		fi
+	done
+}
+
 pw_find_node_section() {
 	local needle="$1"
 	local sec rem
 	[ -n "$needle" ] || return 1
 
 	# exact section
-	if uci -q get "passwall.${needle}.remarks" >/dev/null 2>&1; then
+	if uci -q get "passwall.${needle}.remarks" >/dev/null 2>&1 && [ "$(pw_get_section_type "$needle")" = "$(pw_node_section_type)" ]; then
 		echo "$needle"
 		return 0
 	fi
 
 	# exact remark match
-	sec="$(pw_list_nodes | awk -F'|' -v q="$needle" '$2 == q {print $1; exit}')"
+	sec="$(pw_list_real_nodes | awk -F'|' -v q="$needle" '$2 == q {print $1; exit}')"
 	if [ -n "$sec" ]; then
 		echo "$sec"
 		return 0
 	fi
 
 	# substring remark match (first hit)
-	sec="$(pw_list_nodes | awk -F'|' -v q="$needle" 'index($2, q) > 0 {print $1; exit}')"
+	sec="$(pw_list_real_nodes | awk -F'|' -v q="$needle" 'index($2, q) > 0 {print $1; exit}')"
 	[ -n "$sec" ] || return 1
 	echo "$sec"
 }
@@ -133,5 +155,21 @@ pw_switch_node() {
 	sec="$(pw_cfg_section)"
 	key="$(pw_node_key)"
 	uci -q set "passwall.${sec}.${key}=${target}" || return 1
+	pw_apply
+}
+
+pw_delete_node() {
+	local sec="$1"
+	[ -n "$sec" ] || return 1
+	[ "$(pw_get_section_type "$sec")" = "$(pw_node_section_type)" ] || return 1
+	uci -q delete "passwall.${sec}" || return 1
+	# If deleted node is current, clear pointer to avoid dangling section.
+	local cur key gsec
+	cur="$(pw_get_current_node)"
+	if [ "$cur" = "$sec" ]; then
+		gsec="$(pw_cfg_section)"
+		key="$(pw_node_key)"
+		uci -q set "passwall.${gsec}.${key}=''"
+	fi
 	pw_apply
 }
