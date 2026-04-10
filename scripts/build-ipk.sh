@@ -31,6 +31,30 @@ Title: LuCI app for Telegram + Passwall controller
 Description: Telegram bot bridge for OpenWrt router status and passwall control.
 EOF
 
+# Keep user config on reinstall/upgrade.
+cat > "${CONTROL_DIR}/conffiles" <<EOF
+/etc/config/tgpasswall
+EOF
+
+# Keep existing runtime config across reinstall/upgrade/remove+install flows.
+cat > "${CONTROL_DIR}/preinst" <<'EOF'
+#!/bin/sh
+if [ -f /etc/config/tgpasswall ]; then
+	cp -f /etc/config/tgpasswall /tmp/tgpasswall.config.bak 2>/dev/null || true
+fi
+exit 0
+EOF
+
+cat > "${CONTROL_DIR}/postinst" <<'EOF'
+#!/bin/sh
+if [ -f /tmp/tgpasswall.config.bak ]; then
+	cp -f /tmp/tgpasswall.config.bak /etc/config/tgpasswall 2>/dev/null || true
+	rm -f /tmp/tgpasswall.config.bak 2>/dev/null || true
+fi
+exit 0
+EOF
+
+chmod 0755 "${CONTROL_DIR}/preinst" "${CONTROL_DIR}/postinst"
 chmod 0755 "${DATA_DIR}/etc/init.d/tgpasswall" "${DATA_DIR}/usr/libexec/tgpasswall/"*.sh
 
 # Kwrt/OpenWrt opkg variant expects an outer gzip tarball package:
