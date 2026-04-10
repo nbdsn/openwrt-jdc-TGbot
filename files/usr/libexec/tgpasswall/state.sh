@@ -18,7 +18,7 @@ get_meminfo() {
 		/MemAvailable:/ {a=$2}
 		END {
 			u=t-a
-			printf("mem_total_kb=%s\nmem_used_kb=%s\nmem_avail_kb=%s\n", t, u, a)
+			printf("内存总量KB=%s\n已用内存KB=%s\n可用内存KB=%s\n", t, u, a)
 		}
 	' /proc/meminfo
 }
@@ -37,5 +37,5 @@ status_summary() {
 	l="$(get_loadavg)"
 	m="$(get_meminfo)"
 
-	printf "Host: %s\nUptime(sec): %s\nLoad: %s\n%s\n" "$h" "$u" "$l" "$m"
+	printf "主机名: %s\n运行时长(秒): %s\n系统负载: %s\n%s\n" "$h" "$u" "$l" "$m"
 }

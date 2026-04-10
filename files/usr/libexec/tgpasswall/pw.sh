@@ -18,6 +18,15 @@ pw_service() {
 	uci -q get tgpasswall."$CFG".passwall_service 2>/dev/null || echo "passwall"
 }
 
+pw_node_section_type() {
+	uci -q get tgpasswall."$CFG".passwall_node_section_type 2>/dev/null || echo "nodes"
+}
+
+pw_apply() {
+	uci -q commit passwall || return 1
+	/etc/init.d/"$(pw_service)" restart >/dev/null 2>&1 || /etc/init.d/"$(pw_service)" reload >/dev/null 2>&1
+}
+
 pw_get_enabled() {
 	local sec key
 	sec="$(pw_cfg_section)"
@@ -30,8 +39,7 @@ pw_set_enabled() {
 	sec="$(pw_cfg_section)"
 	key="$(pw_enabled_key)"
 	uci -q set "passwall.${sec}.${key}=${v}" || return 1
-	uci -q commit passwall || return 1
-	/etc/init.d/"$(pw_service)" restart >/dev/null 2>&1 || /etc/init.d/"$(pw_service)" reload >/dev/null 2>&1
+	pw_apply
 }
 
 pw_get_current_node() {
@@ -59,6 +67,5 @@ pw_switch_node() {
 	sec="$(pw_cfg_section)"
 	key="$(pw_node_key)"
 	uci -q set "passwall.${sec}.${key}=${target}" || return 1
-	uci -q commit passwall || return 1
-	/etc/init.d/"$(pw_service)" restart >/dev/null 2>&1 || /etc/init.d/"$(pw_service)" reload >/dev/null 2>&1
+	pw_apply
 }

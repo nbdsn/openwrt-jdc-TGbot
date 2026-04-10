@@ -58,10 +58,10 @@ tg_send() {
 
 tg_menu() {
 	local chat_id="$1"
-	local kb='{"keyboard":[["/status","/passwall"],["/cpu","/mem"],["/ports","/nodes"]],"resize_keyboard":true}'
+	local kb='{"keyboard":[["系统状态","Passwall状态"],["CPU信息","内存信息"],["端口信息","节点列表"],["开启Passwall","关闭Passwall"],["每日推送测试","帮助"]],"resize_keyboard":true}'
 	curl -fsS "${API_URL}/sendMessage" \
 		-d "chat_id=${chat_id}" \
-		--data-urlencode "text=TG Passwall menu ready." \
+		--data-urlencode "text=TG Passwall 菜单已加载，请直接点中文按钮。" \
 		-d "reply_markup=${kb}" >/dev/null 2>&1
 }
 
@@ -80,7 +80,7 @@ cmd_status() {
 }
 
 cmd_cpu() {
-	printf "CPU loadavg: %s\n" "$(get_loadavg)"
+	printf "CPU 负载: %s\n" "$(get_loadavg)"
 }
 
 cmd_mem() {
@@ -92,13 +92,13 @@ cmd_ports() {
 }
 
 cmd_passwall() {
-	printf "Passwall enabled: %s\n" "$(pw_get_enabled)"
-	printf "Current node: %s\n" "$(pw_get_current_node)"
+	printf "Passwall 启用状态: %s\n" "$(pw_get_enabled)"
+	printf "当前节点: %s\n" "$(pw_get_current_node)"
 }
 
 build_daily_report() {
-	printf "Daily Router Report\n"
-	printf "Time: %s\n\n" "$(date '+%Y-%m-%d %H:%M:%S')"
+	printf "路由器每日报告\n"
+	printf "时间: %s\n\n" "$(date '+%Y-%m-%d %H:%M:%S')"
 	status_summary
 	printf "\n"
 	cmd_passwall
@@ -135,21 +135,40 @@ handle_command() {
 	local chat_id="$1"
 	local text="$2"
 	local out=""
-	local cmd arg
+	local cmd arg mapped
 
 	cmd="$(echo "$text" | awk '{print $1}')"
 	arg="$(echo "$text" | cut -d' ' -f2-)"
 
-	case "$cmd" in
+	case "$text" in
+		"系统状态") mapped="/status" ;;
+		"Passwall状态") mapped="/passwall" ;;
+		"CPU信息") mapped="/cpu" ;;
+		"内存信息") mapped="/mem" ;;
+		"端口信息") mapped="/ports" ;;
+		"节点列表") mapped="/nodes" ;;
+		"开启Passwall") mapped="/enable_pw" ;;
+		"关闭Passwall") mapped="/disable_pw" ;;
+		"每日推送测试") mapped="/daily_now" ;;
+		"帮助") mapped="/help" ;;
+		"菜单") mapped="/menu" ;;
+		*) mapped="$cmd" ;;
+	esac
+
+	case "$mapped" in
 		/start|/help)
-			out="TG Passwall commands:
+			out="TG Passwall 可用命令:
 /status /host /cpu /mem /ports
 /passwall /nodes
 /enable_pw /disable_pw
 /switch <section_name>
 /import <node_uri>
 /daily_now
-/menu"
+/menu
+
+中文按钮:
+系统状态 Passwall状态 CPU信息 内存信息 端口信息 节点列表
+开启Passwall 关闭Passwall 每日推送测试 帮助"
 			tg_send "$chat_id" "$out"
 			;;
 		/menu)
@@ -181,30 +200,30 @@ handle_command() {
 			;;
 		/enable_pw)
 			if pw_set_enabled 1; then
-				tg_send "$chat_id" "Passwall enabled."
+				tg_send "$chat_id" "已开启 Passwall。"
 			else
-				tg_send "$chat_id" "Passwall enable failed."
+				tg_send "$chat_id" "开启 Passwall 失败。"
 			fi
 			;;
 		/disable_pw)
 			if pw_set_enabled 0; then
-				tg_send "$chat_id" "Passwall disabled."
+				tg_send "$chat_id" "已关闭 Passwall。"
 			else
-				tg_send "$chat_id" "Passwall disable failed."
+				tg_send "$chat_id" "关闭 Passwall 失败。"
 			fi
 			;;
 		/switch)
 			if [ -z "$arg" ] || [ "$arg" = "$cmd" ]; then
-				tg_send "$chat_id" "Usage: /switch <section_name>"
+				tg_send "$chat_id" "用法: /switch <section_name>"
 			elif pw_switch_node "$arg"; then
-				tg_send "$chat_id" "Switched to node: $arg"
+				tg_send "$chat_id" "已切换节点: $arg"
 			else
-				tg_send "$chat_id" "Switch node failed: $arg"
+				tg_send "$chat_id" "切换节点失败: $arg"
 			fi
 			;;
 		/import)
 			if [ -z "$arg" ] || [ "$arg" = "$cmd" ]; then
-				tg_send "$chat_id" "Usage: /import <node_uri>"
+				tg_send "$chat_id" "用法: /import <node_uri>"
 			else
 				msg="$("${BASE_DIR}/pw_import.sh" "$arg" 2>&1)"
 				tg_send "$chat_id" "$msg"
@@ -215,7 +234,7 @@ handle_command() {
 			tg_send "$chat_id" "$out"
 			;;
 		*)
-			if [ "$ALLOW_NON_COMMAND_MENU" = "1" ] && [ "$text" = "menu" ]; then
+			if [ "$ALLOW_NON_COMMAND_MENU" = "1" ] && { [ "$text" = "menu" ] || [ "$text" = "菜单" ]; }; then
 				tg_menu "$chat_id"
 			fi
 			;;
