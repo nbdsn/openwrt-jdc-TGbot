@@ -49,6 +49,48 @@ pw_get_current_node() {
 	uci -q get "passwall.${sec}.${key}"
 }
 
+pw_get_node_remark_by_section() {
+	local sec="$1"
+	uci -q get "passwall.${sec}.remarks"
+}
+
+pw_get_current_node_display() {
+	local cur sec rem
+	cur="$(pw_get_current_node)"
+	[ -n "$cur" ] || {
+		echo "未设置"
+		return 0
+	}
+
+	rem="$(pw_get_node_remark_by_section "$cur")"
+	if [ -n "$rem" ]; then
+		echo "${rem} (${cur})"
+		return 0
+	fi
+
+	# fallback: some forks store node id instead of section name
+	sec="$(uci -q show passwall | awk -F= -v id="$cur" '
+		$1 ~ /^passwall\.[^.]+\.id$/ {
+			v=$2
+			gsub(/^'\''|'\''$/, "", v)
+			if (v == id) {
+				s=$1
+				sub(/^passwall\./, "", s)
+				sub(/\.id$/, "", s)
+				print s
+				exit
+			}
+		}
+	')"
+	if [ -n "$sec" ]; then
+		rem="$(pw_get_node_remark_by_section "$sec")"
+		[ -n "$rem" ] && echo "${rem} (${sec})" || echo "$sec"
+		return 0
+	fi
+
+	echo "$cur"
+}
+
 pw_list_nodes() {
 	# output: section|remark
 	uci -q show passwall | awk -F= '
@@ -60,6 +102,30 @@ pw_list_nodes() {
 			printf "%s|%s\n", s, $2
 		}
 	'
+}
+
+pw_find_node_section() {
+	local needle="$1"
+	local sec rem
+	[ -n "$needle" ] || return 1
+
+	# exact section
+	if uci -q get "passwall.${needle}.remarks" >/dev/null 2>&1; then
+		echo "$needle"
+		return 0
+	fi
+
+	# exact remark match
+	sec="$(pw_list_nodes | awk -F'|' -v q="$needle" '$2 == q {print $1; exit}')"
+	if [ -n "$sec" ]; then
+		echo "$sec"
+		return 0
+	fi
+
+	# substring remark match (first hit)
+	sec="$(pw_list_nodes | awk -F'|' -v q="$needle" 'index($2, q) > 0 {print $1; exit}')"
+	[ -n "$sec" ] || return 1
+	echo "$sec"
 }
 
 pw_switch_node() {
