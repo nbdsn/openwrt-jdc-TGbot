@@ -79,6 +79,18 @@ scripts/build-ipk.sh all
 opkg install /tmp/luci-app-jdc-tgbot_0.1.0-1_all.ipk
 ```
 
+### 依赖自动安装说明
+
+- `opkg` 会尝试自动安装本插件依赖（如 `curl`、`jq`、`luci-base`、`luci-compat`、`jsonfilter` 等）。
+- 但如果软件源未更新、网络不可用、或源中缺少对应包，自动安装会失败并导致安装中断。
+- 建议先手动更新并补齐依赖，再安装插件：
+
+```bash
+opkg update
+opkg install curl jq luci-base luci-compat jsonfilter coreutils coreutils-base64
+opkg install /tmp/luci-app-jdc-tgbot_0.1.0-1_all.ipk
+```
+
 安装后打开：
 
 - `服务 -> jdc-TGbot`
