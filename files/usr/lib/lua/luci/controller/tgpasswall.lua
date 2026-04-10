@@ -5,5 +5,5 @@ function index()
 		return
 	end
 
-	entry({"admin", "services", "tgpasswall"}, cbi("tgpasswall/main"), _("TG Passwall 插件"), 90).dependent = true
+	entry({"admin", "services", "tgpasswall"}, cbi("tgpasswall/main"), _("jdc-TGbot"), 90).dependent = true
 end

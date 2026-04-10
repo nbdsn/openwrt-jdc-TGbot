@@ -105,7 +105,7 @@ tg_menu() {
 	local kb='{"keyboard":[["🚦 系统状态","🧭 Passwall状态"],["🧠 CPU信息","💾 内存信息"],["🌐 端口信息","🖥️ 在线主机"],["🧩 节点列表","🎛️ 节点面板"],["✅ 开启Passwall","⛔ 关闭Passwall"],["📨 每日推送测试","🔁 重启路由"],["📖 帮助"]],"resize_keyboard":true}'
 	curl -fsS "${API_URL}/sendMessage" \
 		-d "chat_id=${chat_id}" \
-		--data-urlencode "text=✨ TG Passwall 菜单已就绪，点按钮就能操作。" \
+		--data-urlencode "text=✨ jdc-TGbot 菜单已就绪，点按钮就能操作。" \
 		-d "reply_markup=${kb}" >/dev/null 2>&1
 }
 
@@ -284,7 +284,7 @@ handle_command() {
 
 	case "$mapped" in
 		/start|/help)
-			out="✨ TG Passwall 指令
+			out="✨ jdc-TGbot 指令
 /status 查看路由器总览
 /online 查看在线主机
 /cpu 查看CPU负载

@@ -23,7 +23,7 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: luci-app-tgpasswall-ipk
+          name: luci-app-jdc-tgbot-ipk
           path: dist/*.ipk
 
       - name: Create Release (tag only)

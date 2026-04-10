@@ -1,6 +1,6 @@
 local m, s, o
 
-m = Map("tgpasswall", "TG Passwall 插件", "通过 Telegram 机器人管理路由器状态和 Passwall 节点。")
+m = Map("tgpasswall", "jdc-TGbot", "通过 Telegram 机器人管理路由器状态和 Passwall 节点。")
 
 s = m:section(TypedSection, "main", "基础设置")
 s.anonymous = true
@@ -78,6 +78,11 @@ o.description = "导入节点时新增 section 的类型，常见为 nodes。"
 o = s:option(Flag, "allow_non_command_menu", "允许中文“菜单”文本触发")
 o.default = "1"
 o.description = "开启后发送“菜单”两个字也会弹出 TG 键盘。"
+
+o = s:option(DummyValue, "_repo_url", "GitHub 仓库地址")
+o.rawhtml = true
+o.default = '<a href="https://github.com/nbdsn/openwrt-jdc-TGbot" target="_blank">https://github.com/nbdsn/openwrt-jdc-TGbot</a>'
+o.description = "项目源码、更新记录与构建产物地址。"
 
 m.on_after_commit = function(self)
 	luci.sys.call("/etc/init.d/tgpasswall restart >/dev/null 2>&1")

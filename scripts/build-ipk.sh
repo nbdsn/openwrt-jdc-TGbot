@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PKG_NAME="luci-app-tgpasswall"
+PKG_NAME="luci-app-jdc-tgbot"
 PKG_VERSION="0.1.0-1"
 ARCH="${1:-all}"
 OUT_DIR="${ROOT_DIR}/dist"
@@ -27,8 +27,11 @@ Maintainer: nbdsn
 Section: luci
 Category: LuCI
 Submenu: 3. Applications
-Title: LuCI app for Telegram + Passwall controller
-Description: Telegram bot bridge for OpenWrt router status and passwall control.
+Title: jdc-TGbot for Telegram + Passwall controller
+Description: jdc-TGbot Telegram bridge for OpenWrt router status and passwall control.
+Provides: luci-app-tgpasswall
+Replaces: luci-app-tgpasswall
+Conflicts: luci-app-tgpasswall
 EOF
 
 # Keep user config on reinstall/upgrade.
