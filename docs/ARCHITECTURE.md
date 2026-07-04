@@ -51,10 +51,19 @@
 
 - 文件：`files/usr/libexec/tgpasswall/state.sh`
 - 作用：
-  - 读取主机名、运行时长、负载、内存、端口监听
+  - 读取机型、固件、主机名、运行时长、负载、内存、端口监听
+  - 汇总在线主机，并尽量带出 DHCP 主机名
   - 输出统一文本给 Bot 返回
 
-### 2.6 Passwall 控制
+### 2.6 防火墙端口映射
+
+- 文件：`files/usr/libexec/tgpasswall/fw.sh`
+- 作用：
+  - 读取 `firewall redirect` 规则
+  - 查询端口映射启用状态、来源端口、目标 IP/端口、协议
+  - 对已有规则执行启用 / 停用
+
+### 2.7 Passwall 控制
 
 - 文件：`files/usr/libexec/tgpasswall/pw.sh`
 - 作用：
@@ -62,7 +71,7 @@
   - 节点切换、启用关闭
   - `commit` 后重启/重载 passwall 服务
 
-### 2.7 节点导入解析
+### 2.8 节点导入解析
 
 - 文件：`files/usr/libexec/tgpasswall/pw_import.sh`
 - 作用：

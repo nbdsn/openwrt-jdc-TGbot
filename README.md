@@ -21,6 +21,7 @@ GitHub 仓库：
 
 - Telegram 指令查询：
   - `/status` `/host` `/cpu` `/mem` `/ports`
+  - `/online` `/forwards` `/forwardpanel`
 - Passwall 状态与控制：
   - `/passwall` `/nodes`
   - `/enable_pw` `/disable_pw`
@@ -32,7 +33,8 @@ GitHub 仓库：
   - 根据 LuCI 配置的“小时 + 分钟”每天推送一次
 - 中文交互菜单：
   - `系统状态` `Passwall状态` `CPU信息` `内存信息`
-  - `端口信息` `节点列表`
+  - `端口信息` `在线主机` `端口映射`
+  - `节点列表`
   - `开启Passwall` `关闭Passwall`
   - `每日推送测试` `帮助`
 
@@ -43,6 +45,7 @@ GitHub 仓库：
 - `files/etc/init.d/tgpasswall` procd 启动脚本
 - `files/usr/libexec/tgpasswall/bot.sh` TG Bot 主逻辑
 - `files/usr/libexec/tgpasswall/state.sh` 路由器状态采集
+- `files/usr/libexec/tgpasswall/fw.sh` 防火墙端口映射读取与控制
 - `files/usr/libexec/tgpasswall/pw.sh` Passwall 控制
 - `files/usr/libexec/tgpasswall/pw_import.sh` 节点导入解析器
 - `files/usr/lib/lua/luci/controller/tgpasswall.lua` LuCI 入口
@@ -60,7 +63,7 @@ scripts/build-ipk.sh all
 
 输出：
 
-- `dist/luci-app-jdc-tgbot_0.1.0-1_all.ipk`
+- `dist/luci-app-jdc-tgbot_0.2.0-1_all.ipk`
 
 ### 方式 2：GitHub Actions 自动构建
 
@@ -76,7 +79,7 @@ scripts/build-ipk.sh all
 ## 安装到路由器
 
 ```bash
-opkg install /tmp/luci-app-jdc-tgbot_0.1.0-1_all.ipk
+opkg install /tmp/luci-app-jdc-tgbot_0.2.0-1_all.ipk
 ```
 
 ### 依赖自动安装说明
@@ -88,7 +91,7 @@ opkg install /tmp/luci-app-jdc-tgbot_0.1.0-1_all.ipk
 ```bash
 opkg update
 opkg install curl jq luci-base luci-compat jsonfilter coreutils coreutils-base64
-opkg install /tmp/luci-app-jdc-tgbot_0.1.0-1_all.ipk
+opkg install /tmp/luci-app-jdc-tgbot_0.2.0-1_all.ipk
 ```
 
 安装后打开：
@@ -113,6 +116,9 @@ opkg install /tmp/luci-app-jdc-tgbot_0.1.0-1_all.ipk
 - `/start` `/help`
 - `/menu`
 - `/status` `/host`
+- `/online`
+- `/forwards`
+- `/forwardpanel`
 - `/cpu`
 - `/mem`
 - `/ports`
@@ -123,6 +129,22 @@ opkg install /tmp/luci-app-jdc-tgbot_0.1.0-1_all.ipk
 - `/switch <section_name>`
 - `/import <node_uri>`
 - `/daily_now`
+
+`/status` 现在会额外显示：
+
+- 路由器机型
+- 固件描述
+
+`/online` 现在会优先显示：
+
+- IPv4 在线主机
+- DHCP 租约中的主机名（若可获取）
+
+`/forwards` / `/forwardpanel` 支持：
+
+- 查看已有防火墙端口映射（redirect）
+- 查看启用状态、来源端口、目标 IP/端口、协议
+- 在 Telegram 中对已有规则执行启用 / 停用
 
 ### 中文菜单按钮
 

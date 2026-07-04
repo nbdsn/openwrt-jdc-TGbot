@@ -1,7 +1,26 @@
 #!/bin/sh
 
+get_board_json() {
+	ubus call system board 2>/dev/null
+}
+
 get_hostname() {
 	uci -q get system.@system[0].hostname 2>/dev/null || uname -n
+}
+
+get_model() {
+	local model
+	model="$(get_board_json | jsonfilter -e '@.model' 2>/dev/null)"
+	[ -n "$model" ] || model="$(cat /tmp/sysinfo/model 2>/dev/null)"
+	[ -n "$model" ] || model="$(uname -m 2>/dev/null)"
+	echo "$model"
+}
+
+get_release_description() {
+	local desc
+	desc="$(get_board_json | jsonfilter -e '@.release.description' 2>/dev/null)"
+	[ -n "$desc" ] || desc="$(awk -F"'" '/DISTRIB_DESCRIPTION=/ {print $2}' /etc/openwrt_release 2>/dev/null)"
+	echo "$desc"
 }
 
 get_uptime_seconds() {
@@ -70,12 +89,29 @@ get_ports() {
 
 get_online_hosts() {
 	if command -v ip >/dev/null 2>&1; then
-		ip neigh show 2>/dev/null | awk '
-			($(NF)=="REACHABLE" || $(NF)=="STALE" || $(NF)=="DELAY" || $(NF)=="PROBE") {
+		{
+			cat /tmp/dhcp.leases 2>/dev/null
+			echo "__TG_NEIGH__"
+			ip neigh show 2>/dev/null
+		} | awk '
+			seen_neigh == 0 {
+				if ($0 == "__TG_NEIGH__") {
+					seen_neigh=1
+					next
+				}
+				name=$4
+				if (name == "" || name == "*") {
+					name="-"
+				}
+				lease[$3]=name
+				next
+			}
+			($1 !~ /:/) && ($(NF)=="REACHABLE" || $(NF)=="STALE" || $(NF)=="DELAY" || $(NF)=="PROBE") {
+				host=(lease[$1] ? lease[$1] : "-")
 				if ($4=="lladdr") {
-					printf "%s  iface=%s  mac=%s  state=%s\n", $1, $3, $5, $(NF)
+					printf "%s  host=%s  iface=%s  mac=%s  state=%s\n", $1, host, $3, $5, $(NF)
 				} else {
-					printf "%s  iface=%s  state=%s\n", $1, $3, $(NF)
+					printf "%s  host=%s  iface=%s  state=%s\n", $1, host, $3, $(NF)
 				}
 			}
 		'
@@ -85,6 +121,8 @@ get_online_hosts() {
 }
 
 status_summary() {
+	printf "机型: %s\n" "$(get_model)"
+	printf "固件: %s\n" "$(get_release_description)"
 	printf "主机名: %s\n" "$(get_hostname)"
 	printf "运行时长: %s\n" "$(get_uptime_human)"
 	printf "系统负载: %s\n" "$(get_loadavg)"

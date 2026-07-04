@@ -6,6 +6,7 @@ CFG="${TG_CONFIG_SECTION:-main}"
 BASE_DIR="/usr/libexec/tgpasswall"
 
 . "${BASE_DIR}/state.sh"
+. "${BASE_DIR}/fw.sh"
 . "${BASE_DIR}/pw.sh"
 
 log() {
@@ -83,6 +84,8 @@ tg_set_commands() {
 		{"command":"menu","description":"显示中文菜单"},
 		{"command":"status","description":"查看路由器状态"},
 		{"command":"online","description":"查看在线主机"},
+		{"command":"forwards","description":"查看端口映射"},
+		{"command":"forwardpanel","description":"端口映射面板"},
 		{"command":"cpu","description":"查看CPU负载"},
 		{"command":"mem","description":"查看内存信息"},
 		{"command":"ports","description":"查看端口监听"},
@@ -102,7 +105,7 @@ tg_set_commands() {
 
 tg_menu() {
 	local chat_id="$1"
-	local kb='{"keyboard":[["🚦 系统状态","🧭 Passwall状态"],["🧠 CPU信息","💾 内存信息"],["🌐 端口信息","🖥️ 在线主机"],["🧩 节点列表","🎛️ 节点面板"],["✅ 开启Passwall","⛔ 关闭Passwall"],["📨 每日推送测试","🔁 重启路由"],["📖 帮助"]],"resize_keyboard":true}'
+	local kb='{"keyboard":[["🚦 系统状态","🧭 Passwall状态"],["🧠 CPU信息","💾 内存信息"],["🌐 端口信息","🖥️ 在线主机"],["🧱 端口映射","🧩 节点列表"],["🎛️ 节点面板","✅ 开启Passwall"],["⛔ 关闭Passwall","📨 每日推送测试"],["🔁 重启路由","📖 帮助"]],"resize_keyboard":true}'
 	curl -fsS "${API_URL}/sendMessage" \
 		-d "chat_id=${chat_id}" \
 		--data-urlencode "text=✨ jdc-TGbot 菜单已就绪，点按钮就能操作。" \
@@ -122,6 +125,8 @@ is_admin() {
 cmd_status() {
 	cat <<EOF
 📊 路由器状态总览
+📟 机型: $(get_model)
+🧾 固件: $(get_release_description)
 🏷️ 主机名: $(get_hostname)
 ⏱️ 运行时长: $(get_uptime_human)
 🧠 CPU负载: $(get_loadavg)
@@ -156,6 +161,27 @@ cmd_online() {
 		return 0
 	fi
 	printf "🖥️ 在线主机（最多50条）\n%s\n" "$list"
+}
+
+cmd_forwards() {
+	local list
+	list="$(fw_list_redirects | head -n 40 | awk -F'|' '
+		{
+			name=$2; if(name==""){name=$1}
+			enabled=($3=="1" ? "启用" : "停用")
+			src=$4; if(src==""){src="wan"}
+			sport=$5; if(sport==""){sport="*"}
+			proto=$6; if(proto==""){proto="all"}
+			dip=$8; if(dip==""){dip="-"}
+			dport=$9; if(dport==""){dport="*"}
+			printf "%d. [%s] %s | %s:%s -> %s:%s | %s\n", NR, enabled, name, src, sport, dip, dport, proto
+		}
+	')"
+	if [ -z "$list" ]; then
+		echo "🧱 未找到端口映射规则。"
+		return 0
+	fi
+	printf "🧱 端口映射（最多40条）\n%s\n" "$list"
 }
 
 cmd_passwall() {
@@ -232,6 +258,69 @@ send_node_actions() {
 	tg_answer_callback "$cbid" "已打开节点操作面板"
 }
 
+send_forward_panel() {
+	local chat_id="$1"
+	local panel text
+	panel="$(fw_list_redirects | head -n 20 | awk -F'|' '
+		BEGIN { printf "{\"inline_keyboard\":["; first=1 }
+		{
+			btn=$2
+			if(btn==""){btn=$1}
+			prefix=($3=="1" ? "🟢 " : "⚪ ")
+			btn=prefix btn
+			gsub(/"/, "\\\"", btn)
+			gsub(/"/, "\\\"", $1)
+			if(!first){printf ","}
+			first=0
+			printf "[{\"text\":\"%s\",\"callback_data\":\"forward:%s\"}]", btn, $1
+		}
+		END { printf "]}" }
+	')"
+	if [ -z "$panel" ] || [ "$panel" = "{\"inline_keyboard\":[]}" ]; then
+		tg_send "$chat_id" "🧱 没有可操作的端口映射规则。"
+		return 0
+	fi
+	text="🧱 端口映射面板：点击规则可查看详情并启用/停用。"
+	tg_send_inline "$chat_id" "$text" "$panel"
+}
+
+send_forward_actions() {
+	local chat_id="$1"
+	local sec="$2"
+	local cbid="${3:-}"
+	local name enabled src sport proto dip dport status toggle_text toggle_cb txt kb
+
+	name="$(fw_get_display_name "$sec")"
+	enabled="$(fw_is_enabled "$sec")"
+	src="$(fw_get "$sec" src)"
+	sport="$(fw_get "$sec" src_dport)"
+	proto="$(fw_get "$sec" proto)"
+	dip="$(fw_get "$sec" dest_ip)"
+	dport="$(fw_get "$sec" dest_port)"
+
+	[ -n "$name" ] || name="$sec"
+	[ -n "$src" ] || src="wan"
+	[ -n "$sport" ] || sport="*"
+	[ -n "$proto" ] || proto="all"
+	[ -n "$dip" ] || dip="-"
+	[ -n "$dport" ] || dport="*"
+
+	if [ "$enabled" = "1" ]; then
+		status="🟢 已启用"
+		toggle_text="⛔ 停用规则"
+		toggle_cb="forward_disable:${sec}"
+	else
+		status="⚪ 已停用"
+		toggle_text="✅ 启用规则"
+		toggle_cb="forward_enable:${sec}"
+	fi
+
+	txt="🧱 端口映射: ${name}\n状态: ${status}\n入口: ${src}:${sport}\n目标: ${dip}:${dport}\n协议: ${proto}\nsection: ${sec}"
+	kb="{\"inline_keyboard\":[[{\"text\":\"${toggle_text}\",\"callback_data\":\"${toggle_cb}\"}],[{\"text\":\"◀ 返回映射列表\",\"callback_data\":\"forwards_panel\"}]]}"
+	tg_send_inline "$chat_id" "$txt" "$kb"
+	tg_answer_callback "$cbid" "已打开映射操作面板"
+}
+
 maybe_send_daily_report() {
 	local today now_h now_m last sent
 	[ "$DAILY_PUSH_ENABLED" = "1" ] || return 0
@@ -271,6 +360,7 @@ handle_command() {
 		"💾 内存信息"|"内存信息") mapped="/mem" ;;
 		"🌐 端口信息"|"端口信息") mapped="/ports" ;;
 		"🖥️ 在线主机"|"在线主机") mapped="/online" ;;
+		"🧱 端口映射"|"端口映射") mapped="/forwards" ;;
 		"🧩 节点列表"|"节点列表") mapped="/nodes" ;;
 		"🎛️ 节点面板"|"节点面板") mapped="/nodepanel" ;;
 		"✅ 开启Passwall"|"开启Passwall") mapped="/enable_pw" ;;
@@ -287,6 +377,8 @@ handle_command() {
 			out="✨ jdc-TGbot 指令
 /status 查看路由器总览
 /online 查看在线主机
+/forwards 查看端口映射
+/forwardpanel 打开端口映射面板
 /cpu 查看CPU负载
 /mem 查看内存(MB)
 /ports 查看监听端口
@@ -310,6 +402,12 @@ handle_command() {
 			;;
 		/online)
 			tg_send "$chat_id" "$(cmd_online)"
+			;;
+		/forwards)
+			tg_send "$chat_id" "$(cmd_forwards)"
+			;;
+		/forwardpanel)
+			send_forward_panel "$chat_id"
 			;;
 		/cpu)
 			tg_send "$chat_id" "$(cmd_cpu)"
@@ -376,6 +474,9 @@ handle_command() {
 		nodes_panel)
 			send_node_panel "$chat_id"
 			;;
+		forwards_panel)
+			send_forward_panel "$chat_id"
+			;;
 		pw_disable)
 			if pw_set_enabled 0; then
 				tg_send "$chat_id" "⛔ 已关闭 Passwall。"
@@ -392,6 +493,28 @@ handle_command() {
 		node:*)
 			sec="${mapped#node:}"
 			send_node_actions "$chat_id" "$sec" "$cbid"
+			;;
+		forward:*)
+			sec="${mapped#forward:}"
+			send_forward_actions "$chat_id" "$sec" "$cbid"
+			;;
+		forward_enable:*)
+			sec="${mapped#forward_enable:}"
+			if fw_set_enabled "$sec" 1; then
+				tg_send "$chat_id" "✅ 已启用端口映射: $(fw_get_display_name "$sec")"
+			else
+				tg_send "$chat_id" "❌ 启用端口映射失败: $sec"
+			fi
+			tg_answer_callback "$cbid" "执行完成"
+			;;
+		forward_disable:*)
+			sec="${mapped#forward_disable:}"
+			if fw_set_enabled "$sec" 0; then
+				tg_send "$chat_id" "⛔ 已停用端口映射: $(fw_get_display_name "$sec")"
+			else
+				tg_send "$chat_id" "❌ 停用端口映射失败: $sec"
+			fi
+			tg_answer_callback "$cbid" "执行完成"
 			;;
 		node_enable:*)
 			sec="${mapped#node_enable:}"

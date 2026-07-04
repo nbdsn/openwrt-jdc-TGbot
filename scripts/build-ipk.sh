@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PKG_NAME="luci-app-jdc-tgbot"
-PKG_VERSION="0.1.0-1"
+PKG_VERSION="0.2.0-1"
 ARCH="${1:-all}"
 OUT_DIR="${ROOT_DIR}/dist"
 WORK_DIR="$(mktemp -d)"
@@ -68,7 +68,10 @@ tar -C "${CONTROL_DIR}" --format=ustar --uid=0 --gid=0 -czf "${PKG_DIR}/control.
 tar -C "${DATA_DIR}" --format=ustar --uid=0 --gid=0 -czf "${PKG_DIR}/data.tar.gz" .
 
 IPK_PATH="${OUT_DIR}/${PKG_NAME}_${PKG_VERSION}_${ARCH}.ipk"
+ROOT_IPK_PATH="${ROOT_DIR}/${PKG_NAME}_${PKG_VERSION}_${ARCH}.ipk"
 rm -f "${IPK_PATH}"
 tar -C "${PKG_DIR}" --format=ustar --uid=0 --gid=0 -czf "${IPK_PATH}" ./debian-binary ./data.tar.gz ./control.tar.gz
+cp -f "${IPK_PATH}" "${ROOT_IPK_PATH}"
 
 echo "Built: ${IPK_PATH}"
+echo "Copied: ${ROOT_IPK_PATH}"
