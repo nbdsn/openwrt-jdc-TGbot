@@ -2,9 +2,21 @@ local m, s, o
 
 m = Map("tgpasswall", "jdc-TGbot", "通过 Telegram 机器人管理路由器状态和 Passwall 节点。")
 
+local service_running = (luci.sys.call("pgrep -f '/usr/libexec/tgpasswall/bot.sh' >/dev/null 2>&1") == 0)
+local service_enabled = (luci.sys.call("/etc/init.d/tgpasswall enabled >/dev/null 2>&1") == 0)
+
 s = m:section(TypedSection, "main", "基础设置")
 s.anonymous = true
 s.addremove = false
+
+o = s:option(DummyValue, "_service_status", "服务状态")
+o.rawhtml = true
+if service_running then
+	o.default = '<span style="color:#16a34a;font-weight:bold;">运行中</span>'
+else
+	o.default = '<span style="color:#dc2626;font-weight:bold;">未运行</span>'
+end
+o.description = service_enabled and "开机自启：已开启" or "开机自启：未开启"
 
 o = s:option(Flag, "enabled", "启用服务")
 o.rmempty = false

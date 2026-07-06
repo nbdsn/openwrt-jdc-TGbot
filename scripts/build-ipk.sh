@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PKG_NAME="luci-app-jdc-tgbot"
-PKG_VERSION="0.2.0-1"
+PKG_VERSION="0.3.5-1"
 ARCH="${1:-all}"
 OUT_DIR="${ROOT_DIR}/dist"
 WORK_DIR="$(mktemp -d)"
@@ -53,6 +53,11 @@ cat > "${CONTROL_DIR}/postinst" <<'EOF'
 if [ -f /tmp/tgpasswall.config.bak ]; then
 	cp -f /tmp/tgpasswall.config.bak /etc/config/tgpasswall 2>/dev/null || true
 	rm -f /tmp/tgpasswall.config.bak 2>/dev/null || true
+fi
+/etc/init.d/tgpasswall enable >/dev/null 2>&1 || true
+enabled="$(uci -q get tgpasswall.main.enabled 2>/dev/null)"
+if [ "${enabled:-0}" = "1" ]; then
+	/etc/init.d/tgpasswall restart >/dev/null 2>&1 || true
 fi
 exit 0
 EOF

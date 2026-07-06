@@ -46,7 +46,9 @@ fi
 API_URL="${API_BASE}/bot${BOT_TOKEN}"
 OFFSET_FILE="/tmp/tgpasswall.offset"
 LAST_PUSH_FILE="/tmp/tgpasswall.daily.last"
+FORWARD_WIZARD_DIR="/tmp/tgpasswall.forward"
 [ -f "$OFFSET_FILE" ] || echo 0 > "$OFFSET_FILE"
+mkdir -p "$FORWARD_WIZARD_DIR" 2>/dev/null || true
 
 tg_send() {
 	local chat_id="$1"
@@ -86,6 +88,7 @@ tg_set_commands() {
 		{"command":"online","description":"查看在线主机"},
 		{"command":"forwards","description":"查看端口映射"},
 		{"command":"forwardpanel","description":"端口映射面板"},
+		{"command":"add_forward","description":"交互新增映射"},
 		{"command":"cpu","description":"查看CPU负载"},
 		{"command":"mem","description":"查看内存信息"},
 		{"command":"ports","description":"查看端口监听"},
@@ -105,7 +108,7 @@ tg_set_commands() {
 
 tg_menu() {
 	local chat_id="$1"
-	local kb='{"keyboard":[["🚦 系统状态","🧭 Passwall状态"],["🧠 CPU信息","💾 内存信息"],["🌐 端口信息","🖥️ 在线主机"],["🧱 端口映射","🧩 节点列表"],["🎛️ 节点面板","✅ 开启Passwall"],["⛔ 关闭Passwall","📨 每日推送测试"],["🔁 重启路由","📖 帮助"]],"resize_keyboard":true}'
+	local kb='{"keyboard":[["🚦 系统状态","🧭 Passwall状态"],["🧠 CPU信息","💾 内存信息"],["🌐 端口信息","🖥️ 在线主机"],["🧱 端口映射","➕ 新增映射"],["🧩 节点列表","🎛️ 节点面板"],["✅ 开启Passwall","⛔ 关闭Passwall"],["📨 每日推送测试","🔁 重启路由"],["📖 帮助"]],"resize_keyboard":true}'
 	curl -fsS "${API_URL}/sendMessage" \
 		-d "chat_id=${chat_id}" \
 		--data-urlencode "text=✨ jdc-TGbot 菜单已就绪，点按钮就能操作。" \
@@ -128,8 +131,12 @@ cmd_status() {
 📟 机型: $(get_model)
 🧾 固件: $(get_release_description)
 🏷️ 主机名: $(get_hostname)
+🌍 公网IP: $(get_public_ipv4)
+📶 Wi-Fi: $(get_wifi_ssids)
 ⏱️ 运行时长: $(get_uptime_human)
 🧠 CPU负载: $(get_loadavg)
+🌡️ CPU温度: $(get_cpu_temp_c)°C
+📈 CPU占用估算: $(get_cpu_load_percent)%
 
 $(get_mem_summary_mb)
 $(get_storage_summary_mb)
@@ -140,7 +147,7 @@ EOF
 }
 
 cmd_cpu() {
-	printf "🧠 CPU 负载: %s\n" "$(get_loadavg)"
+	printf "🧠 CPU 信息\n%s" "$(get_cpu_summary)"
 }
 
 cmd_mem() {
@@ -262,7 +269,7 @@ send_forward_panel() {
 	local chat_id="$1"
 	local panel text
 	panel="$(fw_list_redirects | head -n 20 | awk -F'|' '
-		BEGIN { printf "{\"inline_keyboard\":["; first=1 }
+		BEGIN { printf "{\"inline_keyboard\":[[{\"text\":\"➕ 新增映射\",\"callback_data\":\"forward_add\"}]"; }
 		{
 			btn=$2
 			if(btn==""){btn=$1}
@@ -270,17 +277,11 @@ send_forward_panel() {
 			btn=prefix btn
 			gsub(/"/, "\\\"", btn)
 			gsub(/"/, "\\\"", $1)
-			if(!first){printf ","}
-			first=0
-			printf "[{\"text\":\"%s\",\"callback_data\":\"forward:%s\"}]", btn, $1
+			printf ",[{\"text\":\"%s\",\"callback_data\":\"forward:%s\"}]", btn, $1
 		}
 		END { printf "]}" }
 	')"
-	if [ -z "$panel" ] || [ "$panel" = "{\"inline_keyboard\":[]}" ]; then
-		tg_send "$chat_id" "🧱 没有可操作的端口映射规则。"
-		return 0
-	fi
-	text="🧱 端口映射面板：点击规则可查看详情并启用/停用。"
+	text="🧱 端口映射面板：可以点已有规则管理，也可以点“新增映射”进入向导。"
 	tg_send_inline "$chat_id" "$text" "$panel"
 }
 
@@ -316,9 +317,230 @@ send_forward_actions() {
 	fi
 
 	txt="🧱 端口映射: ${name}\n状态: ${status}\n入口: ${src}:${sport}\n目标: ${dip}:${dport}\n协议: ${proto}\nsection: ${sec}"
-	kb="{\"inline_keyboard\":[[{\"text\":\"${toggle_text}\",\"callback_data\":\"${toggle_cb}\"}],[{\"text\":\"◀ 返回映射列表\",\"callback_data\":\"forwards_panel\"}]]}"
+	kb="{\"inline_keyboard\":[[{\"text\":\"${toggle_text}\",\"callback_data\":\"${toggle_cb}\"}],[{\"text\":\"➕ 新增映射\",\"callback_data\":\"forward_add\"},{\"text\":\"◀ 返回映射列表\",\"callback_data\":\"forwards_panel\"}]]}"
 	tg_send_inline "$chat_id" "$txt" "$kb"
 	tg_answer_callback "$cbid" "已打开映射操作面板"
+}
+
+fw_wizard_file() {
+	echo "${FORWARD_WIZARD_DIR}/$1.state"
+}
+
+fw_wizard_encode() {
+	printf "%s" "$1" | base64 | tr -d '\n'
+}
+
+fw_wizard_decode() {
+	[ -n "${1:-}" ] || return 0
+	printf "%s" "$1" | base64 -d 2>/dev/null
+}
+
+fw_wizard_set() {
+	local chat_id="$1"
+	local key="$2"
+	local val="$3"
+	local file tmp enc
+	file="$(fw_wizard_file "$chat_id")"
+	tmp="${file}.$$"
+	enc="$(fw_wizard_encode "$val")"
+	grep -v "^${key}=" "$file" 2>/dev/null > "$tmp" || true
+	printf "%s=%s\n" "$key" "$enc" >> "$tmp"
+	mv "$tmp" "$file"
+}
+
+fw_wizard_get() {
+	local chat_id="$1"
+	local key="$2"
+	local file raw
+	file="$(fw_wizard_file "$chat_id")"
+	raw="$(grep "^${key}=" "$file" 2>/dev/null | tail -n 1 | cut -d= -f2-)"
+	fw_wizard_decode "$raw"
+}
+
+fw_wizard_clear() {
+	rm -f "$(fw_wizard_file "$1")"
+}
+
+fw_wizard_is_active() {
+	[ -n "$(fw_wizard_get "$1" step)" ]
+}
+
+fw_wizard_cancel() {
+	local chat_id="$1"
+	fw_wizard_clear "$chat_id"
+	tg_send "$chat_id" "🧱 已取消新增端口映射。"
+}
+
+fw_wizard_summary() {
+	local chat_id="$1"
+	local name proto src dest dest_ip dest_port src_port host_name
+	name="$(fw_wizard_get "$chat_id" name)"
+	proto="$(fw_wizard_get "$chat_id" proto)"
+	src="$(fw_wizard_get "$chat_id" src)"
+	dest="$(fw_wizard_get "$chat_id" dest)"
+	dest_ip="$(fw_wizard_get "$chat_id" dest_ip)"
+	src_port="$(fw_wizard_get "$chat_id" src_dport)"
+	dest_port="$(fw_wizard_get "$chat_id" dest_port)"
+	host_name="$(fw_host_name_by_ip "$dest_ip")"
+	[ -n "$host_name" ] && [ "$host_name" != "-" ] || host_name="未命名主机"
+	cat <<EOF
+名称: ${name}
+协议: ${proto}
+来源分区: ${src}
+目标分区: ${dest}
+内网主机: ${host_name} (${dest_ip})
+外网端口: ${src_port}
+内网端口: ${dest_port}
+EOF
+}
+
+fw_wizard_prompt_name() {
+	local chat_id="$1"
+	tg_send_inline "$chat_id" "🧱 新增端口映射\n第 1 步：请输入规则名称，例如 NAS、相机、飞牛。" '{"inline_keyboard":[[{"text":"取消新增映射","callback_data":"fwadd_cancel"}]]}'
+}
+
+fw_wizard_prompt_protocol() {
+	local chat_id="$1"
+	tg_send_inline "$chat_id" "🧱 第 2 步：请选择协议。" '{"inline_keyboard":[[{"text":"TCP","callback_data":"fwadd_proto:tcp"},{"text":"UDP","callback_data":"fwadd_proto:udp"}],[{"text":"TCP+UDP","callback_data":"fwadd_proto:tcp udp"}],[{"text":"取消新增映射","callback_data":"fwadd_cancel"}]]}'
+}
+
+fw_wizard_prompt_host() {
+	local chat_id="$1"
+	local hosts panel
+	hosts="$(fw_list_hosts | head -n 20)"
+	panel="$(printf "%s\n" "$hosts" | awk -F'|' '
+		BEGIN {
+			printf "{\"inline_keyboard\":[[{\"text\":\"✍️ 手动输入 IP\",\"callback_data\":\"fwadd_host_manual\"}]"
+			first=1
+		}
+		{
+			if($0==""){ next }
+			label=$1
+			if($2 != "" && $2 != "-"){
+				label=$2 " (" $1 ")"
+			}
+			gsub(/"/, "\\\"", label)
+			gsub(/"/, "\\\"", $1)
+			printf ",[{\"text\":\"%s\",\"callback_data\":\"fwadd_host:%s\"}]", label, $1
+		}
+		END {
+			printf ",[{\"text\":\"取消新增映射\",\"callback_data\":\"fwadd_cancel\"}]]}"
+		}
+	')"
+	tg_send_inline "$chat_id" "🧱 第 3 步：请选择内网主机，或者手动输入 IP。" "$panel"
+}
+
+fw_wizard_prompt_manual_host() {
+	local chat_id="$1"
+	tg_send_inline "$chat_id" "🧱 第 3 步：请输入内网主机 IP，例如 192.168.31.2。" '{"inline_keyboard":[[{"text":"取消新增映射","callback_data":"fwadd_cancel"}]]}'
+}
+
+fw_wizard_prompt_src_port() {
+	local chat_id="$1"
+	tg_send_inline "$chat_id" "🧱 第 4 步：请输入外网端口，支持单个端口或范围，例如 702、8000-8010。" '{"inline_keyboard":[[{"text":"取消新增映射","callback_data":"fwadd_cancel"}]]}'
+}
+
+fw_wizard_prompt_dest_port_mode() {
+	local chat_id="$1"
+	tg_send_inline "$chat_id" "🧱 第 5 步：内网端口要怎么设置？" '{"inline_keyboard":[[{"text":"与外网端口相同","callback_data":"fwadd_dport_same"},{"text":"手动输入内网端口","callback_data":"fwadd_dport_manual"}],[{"text":"取消新增映射","callback_data":"fwadd_cancel"}]]}'
+}
+
+fw_wizard_prompt_dest_port() {
+	local chat_id="$1"
+	tg_send_inline "$chat_id" "🧱 第 5 步：请输入内网端口，支持单个端口或范围，例如 80、9000-9010。" '{"inline_keyboard":[[{"text":"取消新增映射","callback_data":"fwadd_cancel"}]]}'
+}
+
+fw_wizard_prompt_confirm() {
+	local chat_id="$1"
+	local summary
+	summary="$(fw_wizard_summary "$chat_id")"
+	tg_send_inline "$chat_id" "🧱 请确认要创建的端口映射：\n${summary}" '{"inline_keyboard":[[{"text":"✅ 创建并启用","callback_data":"fwadd_create:1"},{"text":"⚪ 创建但先停用","callback_data":"fwadd_create:0"}],[{"text":"取消新增映射","callback_data":"fwadd_cancel"}]]}'
+}
+
+fw_wizard_start() {
+	local chat_id="$1"
+	fw_wizard_clear "$chat_id"
+	fw_wizard_set "$chat_id" step "name"
+	fw_wizard_prompt_name "$chat_id"
+}
+
+fw_wizard_handle_text() {
+	local chat_id="$1"
+	local text="$2"
+	local step
+	step="$(fw_wizard_get "$chat_id" step)"
+	[ -n "$step" ] || return 1
+
+	case "$step" in
+		name)
+			if [ -z "$text" ]; then
+				tg_send "$chat_id" "❌ 规则名称不能为空，请重新输入。"
+				return 0
+			fi
+			fw_wizard_set "$chat_id" name "$text"
+			fw_wizard_set "$chat_id" step "protocol"
+			fw_wizard_prompt_protocol "$chat_id"
+			return 0
+			;;
+		dest_ip)
+			if ! fw_ipv4_is_valid "$text"; then
+				tg_send "$chat_id" "❌ IP 格式不对，请输入类似 192.168.31.2 的 IPv4 地址。"
+				return 0
+			fi
+			fw_wizard_set "$chat_id" dest_ip "$text"
+			fw_wizard_set "$chat_id" step "src_port"
+			tg_send "$chat_id" "✅ 已记录内网主机：$text"
+			fw_wizard_prompt_src_port "$chat_id"
+			return 0
+			;;
+		src_port)
+			if ! fw_port_is_valid "$text"; then
+				tg_send "$chat_id" "❌ 外网端口格式不对，请输入 1-65535 的端口，或形如 8000-8010 的范围。"
+				return 0
+				fi
+				fw_wizard_set "$chat_id" src_dport "$text"
+				fw_wizard_set "$chat_id" step "dest_port_mode"
+				fw_wizard_prompt_dest_port_mode "$chat_id"
+			return 0
+			;;
+			dest_port)
+				if ! fw_port_is_valid "$text"; then
+					tg_send "$chat_id" "❌ 内网端口格式不对，请输入 1-65535 的端口，或形如 8000-8010 的范围。"
+					return 0
+				fi
+				fw_wizard_set "$chat_id" dest_port "$text"
+				fw_wizard_set "$chat_id" step "confirm"
+				tg_send "$chat_id" "✅ 已记录内网端口：$text，正在生成确认信息。"
+				fw_wizard_prompt_confirm "$chat_id"
+				return 0
+				;;
+	esac
+
+	return 1
+}
+
+fw_wizard_create() {
+	local chat_id="$1"
+	local enabled="$2"
+	local name proto src dest dest_ip src_dport dest_port sec
+
+	name="$(fw_wizard_get "$chat_id" name)"
+	proto="$(fw_wizard_get "$chat_id" proto)"
+	src="$(fw_wizard_get "$chat_id" src)"
+	dest="$(fw_wizard_get "$chat_id" dest)"
+	dest_ip="$(fw_wizard_get "$chat_id" dest_ip)"
+	src_dport="$(fw_wizard_get "$chat_id" src_dport)"
+	dest_port="$(fw_wizard_get "$chat_id" dest_port)"
+
+	sec="$(fw_create_redirect "$name" "$src" "$proto" "$dest" "$dest_ip" "$src_dport" "$dest_port" "$enabled" 2>/dev/null)" || {
+		tg_send "$chat_id" "❌ 创建端口映射失败，请稍后再试。"
+		return 1
+	}
+
+	fw_wizard_clear "$chat_id"
+	tg_send "$chat_id" "✅ 端口映射已创建：${name}\nsection: ${sec}"
+	send_forward_panel "$chat_id"
+	return 0
 }
 
 maybe_send_daily_report() {
@@ -361,6 +583,7 @@ handle_command() {
 		"🌐 端口信息"|"端口信息") mapped="/ports" ;;
 		"🖥️ 在线主机"|"在线主机") mapped="/online" ;;
 		"🧱 端口映射"|"端口映射") mapped="/forwards" ;;
+		"➕ 新增映射"|"新增映射") mapped="/add_forward" ;;
 		"🧩 节点列表"|"节点列表") mapped="/nodes" ;;
 		"🎛️ 节点面板"|"节点面板") mapped="/nodepanel" ;;
 		"✅ 开启Passwall"|"开启Passwall") mapped="/enable_pw" ;;
@@ -379,6 +602,7 @@ handle_command() {
 /online 查看在线主机
 /forwards 查看端口映射
 /forwardpanel 打开端口映射面板
+/add_forward 交互新增映射
 /cpu 查看CPU负载
 /mem 查看内存(MB)
 /ports 查看监听端口
@@ -393,6 +617,9 @@ handle_command() {
 /daily_now 测试日报
 /menu 打开中文菜单"
 			tg_send "$chat_id" "$out"
+			;;
+		/add_forward)
+			fw_wizard_start "$chat_id"
 			;;
 		/menu)
 			tg_menu "$chat_id"
@@ -476,6 +703,49 @@ handle_command() {
 			;;
 		forwards_panel)
 			send_forward_panel "$chat_id"
+			;;
+		forward_add)
+			fw_wizard_start "$chat_id"
+			tg_answer_callback "$cbid" "已进入新增映射向导"
+			;;
+		fwadd_cancel)
+			fw_wizard_cancel "$chat_id"
+			tg_answer_callback "$cbid" "已取消"
+			;;
+		fwadd_proto:*)
+			fw_wizard_set "$chat_id" proto "${mapped#fwadd_proto:}"
+			fw_wizard_set "$chat_id" src "wan"
+			fw_wizard_set "$chat_id" dest "lan"
+			fw_wizard_set "$chat_id" step "host"
+			fw_wizard_prompt_host "$chat_id"
+			tg_answer_callback "$cbid" "已选择协议，默认使用 wan -> lan"
+			;;
+		fwadd_host:*)
+			fw_wizard_set "$chat_id" dest_ip "${mapped#fwadd_host:}"
+			fw_wizard_set "$chat_id" step "src_port"
+			fw_wizard_prompt_src_port "$chat_id"
+			tg_answer_callback "$cbid" "已选择内网主机"
+			;;
+		fwadd_host_manual)
+			fw_wizard_set "$chat_id" step "dest_ip"
+			fw_wizard_prompt_manual_host "$chat_id"
+			tg_answer_callback "$cbid" "请发送内网 IP"
+			;;
+		fwadd_dport_same)
+			fw_wizard_set "$chat_id" dest_port "$(fw_wizard_get "$chat_id" src_dport)"
+			fw_wizard_set "$chat_id" step "confirm"
+			tg_send "$chat_id" "✅ 已使用与外网相同的内网端口，正在生成确认信息。"
+			fw_wizard_prompt_confirm "$chat_id"
+			tg_answer_callback "$cbid" "已使用相同端口"
+			;;
+		fwadd_dport_manual)
+			fw_wizard_set "$chat_id" step "dest_port"
+			fw_wizard_prompt_dest_port "$chat_id"
+			tg_answer_callback "$cbid" "请发送内网端口"
+			;;
+		fwadd_create:*)
+			fw_wizard_create "$chat_id" "${mapped#fwadd_create:}"
+			tg_answer_callback "$cbid" "已提交创建"
 			;;
 		pw_disable)
 			if pw_set_enabled 0; then
@@ -578,6 +848,22 @@ while true; do
 		if ! is_admin "$chat_id" "$user_id"; then
 			log "ignore non-admin chat_id=${chat_id} user_id=${user_id}"
 			continue
+		fi
+
+		if fw_wizard_is_active "$chat_id"; then
+			case "$text" in
+				"取消"|"取消新增映射"|"/cancel")
+					fw_wizard_cancel "$chat_id"
+					continue
+					;;
+				/*)
+					;;
+				*)
+					if fw_wizard_handle_text "$chat_id" "$text"; then
+						continue
+					fi
+					;;
+			esac
 		fi
 
 		handle_command "$chat_id" "$text" "$cbid"

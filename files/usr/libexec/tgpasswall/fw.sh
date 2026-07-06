@@ -6,7 +6,13 @@ fw_service() {
 
 fw_apply() {
 	uci -q commit firewall || return 1
-	/etc/init.d/"$(fw_service)" reload >/dev/null 2>&1 || /etc/init.d/"$(fw_service)" restart >/dev/null 2>&1
+	if [ -x /sbin/fw4 ]; then
+		/sbin/fw4 check >/dev/null 2>&1 || return 1
+		/sbin/fw4 reload >/dev/null 2>&1 || true
+		return 0
+	fi
+	/etc/init.d/"$(fw_service)" reload >/dev/null 2>&1 || /etc/init.d/"$(fw_service)" restart >/dev/null 2>&1 || true
+	return 0
 }
 
 fw_redirect_sections() {
@@ -49,6 +55,126 @@ fw_get_display_name() {
 	local name
 	name="$(fw_get "$sec" name)"
 	[ -n "$name" ] && echo "$name" || echo "$sec"
+}
+
+fw_list_zones() {
+	uci -q show firewall 2>/dev/null | awk -F= '
+		$1 ~ /^firewall\.@zone\[[0-9]+\]\.name$/ {
+			v=$2
+			gsub(/^'\''|'\''$/, "", v)
+			if (v != "") {
+				print v
+			}
+		}
+	'
+}
+
+fw_list_hosts() {
+	awk '
+		{
+			ip=$3
+			name=$4
+			if (ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) {
+				if (name == "" || name == "*") {
+					name="-"
+				}
+				if (!seen[ip]++) {
+					printf "%s|%s\n", ip, name
+				}
+			}
+		}
+	' /tmp/dhcp.leases 2>/dev/null
+}
+
+fw_host_name_by_ip() {
+	local ip="$1"
+	fw_list_hosts | awk -F'|' -v q="$ip" '$1 == q {print $2; exit}'
+}
+
+fw_ipv4_is_valid() {
+	local ip="$1"
+	local o1 o2 o3 o4
+
+	case "$ip" in
+		""|*[!0-9.]*|*.*.*.*.*|.*|*.)
+			return 1
+			;;
+	esac
+
+	IFS=. read -r o1 o2 o3 o4 <<EOF
+$ip
+EOF
+
+	for octet in "$o1" "$o2" "$o3" "$o4"; do
+		case "$octet" in
+			""|*[!0-9]*)
+				return 1
+				;;
+		esac
+		[ "$octet" -ge 0 ] && [ "$octet" -le 255 ] || return 1
+	done
+
+	return 0
+}
+
+fw_port_is_valid() {
+	local port="$1"
+	local a b
+
+	case "$port" in
+		""|*[!0-9-]*|*-|-*|*--*)
+			return 1
+			;;
+	esac
+
+	case "$port" in
+		*-*)
+			a="${port%-*}"
+			b="${port#*-}"
+			case "$a" in ""|*[!0-9]*) return 1 ;; esac
+			case "$b" in ""|*[!0-9]*) return 1 ;; esac
+			[ "$a" -ge 1 ] && [ "$a" -le 65535 ] || return 1
+			[ "$b" -ge 1 ] && [ "$b" -le 65535 ] || return 1
+			[ "$a" -le "$b" ] || return 1
+			;;
+		*)
+			[ "$port" -ge 1 ] && [ "$port" -le 65535 ] || return 1
+			;;
+	esac
+
+	return 0
+}
+
+fw_create_redirect() {
+	local name="$1"
+	local src="$2"
+	local proto="$3"
+	local dest="$4"
+	local dest_ip="$5"
+	local src_dport="$6"
+	local dest_port="$7"
+	local enabled="$8"
+	local sec
+
+	sec="$(uci add firewall redirect)" || return 1
+	uci -q set "firewall.${sec}.name=${name}" || return 1
+	uci -q set "firewall.${sec}.src=${src}" || return 1
+	uci -q set "firewall.${sec}.dest=${dest}" || return 1
+	uci -q set "firewall.${sec}.target=DNAT" || return 1
+	uci -q set "firewall.${sec}.proto=${proto}" || return 1
+	uci -q set "firewall.${sec}.src_dport=${src_dport}" || return 1
+	uci -q set "firewall.${sec}.dest_ip=${dest_ip}" || return 1
+	uci -q set "firewall.${sec}.dest_port=${dest_port}" || return 1
+	uci -q set "firewall.${sec}.family=ipv4" || return 1
+
+	if [ "$enabled" = "1" ]; then
+		uci -q delete "firewall.${sec}.disabled" >/dev/null 2>&1 || true
+	else
+		uci -q set "firewall.${sec}.disabled=1" || return 1
+	fi
+
+	fw_apply || return 1
+	echo "$sec"
 }
 
 fw_list_redirects() {
