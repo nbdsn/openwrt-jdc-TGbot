@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PKG_NAME="luci-app-jdc-tgbot"
-PKG_VERSION="0.3.5-1"
+PKG_VERSION="0.3.6-1"
 ARCH="${1:-all}"
 OUT_DIR="${ROOT_DIR}/dist"
 WORK_DIR="$(mktemp -d)"

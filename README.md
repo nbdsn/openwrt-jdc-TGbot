@@ -63,7 +63,7 @@ scripts/build-ipk.sh all
 
 输出：
 
-- `dist/luci-app-jdc-tgbot_0.3.5-1_all.ipk`
+- `dist/luci-app-jdc-tgbot_0.3.6-1_all.ipk`
 
 ### 方式 2：GitHub Actions 自动构建
 
@@ -79,7 +79,7 @@ scripts/build-ipk.sh all
 ## 安装到路由器
 
 ```bash
-opkg install /tmp/luci-app-jdc-tgbot_0.3.5-1_all.ipk
+opkg install /tmp/luci-app-jdc-tgbot_0.3.6-1_all.ipk
 ```
 
 ### 依赖自动安装说明
@@ -91,7 +91,7 @@ opkg install /tmp/luci-app-jdc-tgbot_0.3.5-1_all.ipk
 ```bash
 opkg update
 opkg install curl jq luci-base luci-compat jsonfilter coreutils coreutils-base64
-opkg install /tmp/luci-app-jdc-tgbot_0.3.5-1_all.ipk
+opkg install /tmp/luci-app-jdc-tgbot_0.3.6-1_all.ipk
 ```
 
 安装后打开：

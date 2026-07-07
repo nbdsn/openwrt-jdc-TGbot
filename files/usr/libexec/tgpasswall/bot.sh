@@ -128,21 +128,27 @@ is_admin() {
 cmd_status() {
 	cat <<EOF
 📊 路由器状态总览
+━━━━━━━━━━━━
+🖥 设备
 📟 机型: $(get_model)
-🧾 固件: $(get_release_description)
 🏷️ 主机名: $(get_hostname)
-🌍 公网IP: $(get_public_ipv4)
-📶 Wi-Fi: $(get_wifi_ssids)
+🧾 固件: $(get_release_description)
 ⏱️ 运行时长: $(get_uptime_human)
-🧠 CPU负载: $(get_loadavg)
-🌡️ CPU温度: $(get_cpu_temp_c)°C
-📈 CPU占用估算: $(get_cpu_load_percent)%
 
-$(get_mem_summary_mb)
-$(get_storage_summary_mb)
+🌐 网络
+🌍 公网 IP: $(get_public_ipv4)
+📶 Wi-Fi: $(get_wifi_ssids)
 
+🧠 资源
+📈 CPU 占用: $(get_cpu_load_percent)%
+🌡️ CPU 温度: $(get_cpu_temp_c)°C
+📊 CPU 负载: $(get_loadavg)
+
+$(get_mem_summary_mb)$(get_storage_summary_mb)
+
+🧩 代理
 🚦 Passwall: $(pw_get_enabled)
-🧩 当前节点: $(pw_get_current_node_display)
+🧷 当前节点: $(pw_get_current_node_display)
 EOF
 }
 
